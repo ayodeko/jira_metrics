@@ -122,7 +122,7 @@ export const TeamTable: React.FC<TeamTableProps> = ({
                 }}
                 tabIndex={0}
                 aria-label="Sort by name"
-                aria-sort={sortField === 'name' ? sortDirection : undefined}
+                aria-sort={sortField === 'name' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : undefined}
               >
                 <Flex alignItems="center">
                   NAME {getSortIcon('name')}
@@ -141,7 +141,7 @@ export const TeamTable: React.FC<TeamTableProps> = ({
                 }}
                 tabIndex={0}
                 aria-label="Sort by issues assigned"
-                aria-sort={sortField === 'issuesAssigned' ? sortDirection : undefined}
+                aria-sort={sortField === 'issuesAssigned' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : undefined}
               >
                 <Flex alignItems="center">
                   ISSUES ASSIGNED {getSortIcon('issuesAssigned')}
@@ -160,7 +160,7 @@ export const TeamTable: React.FC<TeamTableProps> = ({
                 }}
                 tabIndex={0}
                 aria-label="Sort by issues completed"
-                aria-sort={sortField === 'issuesCompleted' ? sortDirection : undefined}
+                aria-sort={sortField === 'issuesCompleted' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : undefined}
               >
                 <Flex alignItems="center">
                   ISSUES COMPLETED {getSortIcon('issuesCompleted')}
@@ -179,10 +179,10 @@ export const TeamTable: React.FC<TeamTableProps> = ({
                 }}
                 tabIndex={0}
                 aria-label="Sort by average lead time"
-                aria-sort={sortField === 'averageLeadTime' ? sortDirection : undefined}
+                aria-sort={sortField === 'averageLeadTime' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : undefined}
               >
                 <Flex alignItems="center">
-                  AVG LEAD TIME {getSortIcon('averageLeadTime')}
+                  AVG LEAD TIME (DAYS) {getSortIcon('averageLeadTime')}
                 </Flex>
               </Th>
               <Th
@@ -198,10 +198,10 @@ export const TeamTable: React.FC<TeamTableProps> = ({
                 }}
                 tabIndex={0}
                 aria-label="Sort by average cycle time"
-                aria-sort={sortField === 'averageCycleTime' ? sortDirection : undefined}
+                aria-sort={sortField === 'averageCycleTime' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : undefined}
               >
                 <Flex alignItems="center">
-                  AVG CYCLE TIME {getSortIcon('averageCycleTime')}
+                  AVG CYCLE TIME (DAYS) {getSortIcon('averageCycleTime')}
                 </Flex>
               </Th>
               <Th
@@ -217,10 +217,10 @@ export const TeamTable: React.FC<TeamTableProps> = ({
                 }}
                 tabIndex={0}
                 aria-label="Sort by throughput"
-                aria-sort={sortField === 'throughput' ? sortDirection : undefined}
+                aria-sort={sortField === 'throughput' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : undefined}
               >
                 <Flex alignItems="center">
-                  THROUGHPUT {getSortIcon('throughput')}
+                  THROUGHPUT (ISSUES/WEEK) {getSortIcon('throughput')}
                 </Flex>
               </Th>
             </Tr>

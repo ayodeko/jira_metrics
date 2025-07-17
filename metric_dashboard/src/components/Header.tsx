@@ -9,6 +9,8 @@ interface HeaderProps {
   onScopeChange: (scope: 'Issue' | 'Team' | 'Epic' | 'Sprint' | 'Project') => void;
   onRefresh?: () => void;
   onLogout?: () => void;
+  dateRange?: { startDate: string | null, endDate: string | null };
+  onDateRangeChange?: (start: string | null, end: string | null) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -17,7 +19,9 @@ export const Header: React.FC<HeaderProps> = ({
   onProjectChange,
   onScopeChange,
   onRefresh,
-  onLogout
+  onLogout,
+  dateRange,
+  onDateRangeChange
 }) => {
   const bgColor = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('gray.200', 'gray.700');
@@ -65,15 +69,29 @@ export const Header: React.FC<HeaderProps> = ({
               </Button>
             ))}
           </ButtonGroup>
-          <InputGroup size="sm" maxW="200px">
-            <Input placeholder="Date range" aria-label="Date range" _focus={{
-            boxShadow: 'outline',
-            borderColor: 'blue.500'
-          }} />
-            <InputRightElement>
-              <Calendar size={16} />
-            </InputRightElement>
-          </InputGroup>
+          <Flex alignItems="center" gap={2}>
+            <Input
+              type="date"
+              size="sm"
+              value={dateRange?.startDate || ''}
+              onChange={e => onDateRangeChange?.(e.target.value || null, dateRange?.endDate || null)}
+              max={dateRange?.endDate || undefined}
+              placeholder="Start date"
+              aria-label="Start date"
+              width="120px"
+            />
+            <Text mx={1}>-</Text>
+            <Input
+              type="date"
+              size="sm"
+              value={dateRange?.endDate || ''}
+              onChange={e => onDateRangeChange?.(dateRange?.startDate || null, e.target.value || null)}
+              min={dateRange?.startDate || undefined}
+              placeholder="End date"
+              aria-label="End date"
+              width="120px"
+            />
+          </Flex>
         </Flex>
         <Flex alignItems="center">
           <Tooltip label="Refresh data" aria-label="Refresh data">

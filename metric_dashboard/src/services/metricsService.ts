@@ -66,62 +66,63 @@ const createApiClient = (credentials: JiraCredentials) => {
 
 export const metricsService = {
   // KPI Metrics
-  async getLeadTime(credentials: JiraCredentials) {
+  async getLeadTime(credentials: JiraCredentials, dateRange?: { startDate: string | null, endDate: string | null }) {
     const client = createApiClient(credentials);
-    const response = await client.post('/leadtime', { credentials });
+    const response = await client.post('/leadtime', { credentials, ...dateRange });
     return response.data.leadTime;
   },
 
-  async getCycleTime(credentials: JiraCredentials) {
+  async getCycleTime(credentials: JiraCredentials, dateRange?: { startDate: string | null, endDate: string | null }) {
     const client = createApiClient(credentials);
-    const response = await client.post('/cycletime', { credentials });
+    const response = await client.post('/cycletime', { credentials, ...dateRange });
     return response.data.cycleTime;
   },
 
-  async getThroughput(credentials: JiraCredentials) {
+  async getThroughput(credentials: JiraCredentials, dateRange?: { startDate: string | null, endDate: string | null }) {
     const client = createApiClient(credentials);
-    const response = await client.post('/throughput', { credentials });
+    const response = await client.post('/throughput', { credentials, ...dateRange });
     return response.data.throughput;
   },
 
-  async getWorkInProgress(credentials: JiraCredentials) {
+  async getWorkInProgress(credentials: JiraCredentials, dateRange?: { startDate: string | null, endDate: string | null }) {
     const client = createApiClient(credentials);
-    const response = await client.post('/wip', { credentials });
+    const response = await client.post('/wip', { credentials, ...dateRange });
     return response.data.workInProgress;
   },
 
-  async getReopenRate(credentials: JiraCredentials) {
+  async getReopenRate(credentials: JiraCredentials, dateRange?: { startDate: string | null, endDate: string | null }) {
     const client = createApiClient(credentials);
-    const response = await client.post('/reopenrate', { credentials });
+    const response = await client.post('/reopenrate', { credentials, ...dateRange });
     return response.data.reopenRate;
   },
 
   // Chart Data
-  async getTimeInStatus(credentials: JiraCredentials) {
+  async getTimeInStatus(credentials: JiraCredentials, dateRange?: { startDate: string | null, endDate: string | null }) {
     const client = createApiClient(credentials);
-    const response = await client.post<TimeInStatusData>('/timeinstatus', { credentials });
+    const response = await client.post<TimeInStatusData>('/timeinstatus', { credentials, ...dateRange });
     return response.data;
   },
 
-  async getTrend(credentials: JiraCredentials) {
+  async getTrend(credentials: JiraCredentials, dateRange?: { startDate: string | null, endDate: string | null }) {
     const client = createApiClient(credentials);
-    const response = await client.post<TrendData>('/trend', { credentials });
+    const response = await client.post<TrendData>('/trend', { credentials, ...dateRange });
     return response.data;
   },
 
-  async getCumulativeFlow(credentials: JiraCredentials) {
+  async getCumulativeFlow(credentials: JiraCredentials, dateRange?: { startDate: string | null, endDate: string | null }) {
     const client = createApiClient(credentials);
-    const response = await client.post<CumulativeFlowData>('/cumulativeflow', { credentials });
+    const response = await client.post<CumulativeFlowData>('/cumulativeflow', { credentials, ...dateRange });
     return response.data;
   },
 
   // Issues
-  async getIssues(credentials: JiraCredentials, page = 1, pageSize = 20) {
+  async getIssues(credentials: JiraCredentials, page = 1, pageSize = 20, dateRange?: { startDate: string | null, endDate: string | null }) {
     const client = createApiClient(credentials);
     const response = await client.post('/issuetable', { 
       credentials,
       page, 
-      pageSize 
+      pageSize,
+      ...dateRange
     });
     return response.data;
   },

@@ -14,11 +14,19 @@ interface IssueTableProps {
   issues?: Issue[];
   isLoading?: boolean;
   isError?: boolean;
+  currentPage?: number;
+  total?: number;
+  pageSize?: number;
+  onPageChange?: (page: number) => void;
 }
 export const IssueTable: React.FC<IssueTableProps> = ({
   issues = [],
   isLoading = false,
-  isError = false
+  isError = false,
+  currentPage = 1,
+  total = 0,
+  pageSize = 20,
+  onPageChange
 }) => {
   const [sortField, setSortField] = useState<keyof Issue>('done');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
@@ -38,6 +46,20 @@ export const IssueTable: React.FC<IssueTableProps> = ({
   const evenRowBg = useColorModeValue('gray.50', 'gray.700');
   // Filter issues based on search query
   const filteredIssues = issues.filter(issue => issue.key.toLowerCase().includes(searchQuery.toLowerCase()) || issue.summary.toLowerCase().includes(searchQuery.toLowerCase()));
+  // Sort issues
+  const sortedIssues = [...filteredIssues].sort((a, b) => {
+    if (sortField === 'done') {
+      return sortDirection === 'asc'
+        ? a.done.localeCompare(b.done)
+        : b.done.localeCompare(a.done);
+    }
+    if (sortField === 'key') {
+      return sortDirection === 'asc'
+        ? a.key.localeCompare(b.key)
+        : b.key.localeCompare(a.key);
+    }
+    return 0;
+  });
   if (isError) {
     return <Box width="100%" p={8} textAlign="center" borderRadius="md" bg={useColorModeValue('red.50', 'red.900')}>
         <Text color="red.500">Error loading issue data. Please try again.</Text>
@@ -97,13 +119,13 @@ export const IssueTable: React.FC<IssueTableProps> = ({
           }} tabIndex={0} aria-label="Sort by done date" aria-sort={sortField === 'done' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : undefined}>
                 <Flex alignItems="center">DONE {getSortIcon('done')}</Flex>
               </Th>
-              <Th>LEAD TIME</Th>
-              <Th>CYCLE TIME</Th>
+              <Th>LEAD TIME (DAYS)</Th>
+              <Th>CYCLE TIME (DAYS)</Th>
               <Th>SPRINT/EPIC</Th>
             </Tr>
           </Thead>
           <Tbody>
-            {filteredIssues.map((issue, index) => <Tr key={issue.key} bg={index % 2 === 1 ? evenRowBg : undefined}>
+            {sortedIssues.map((issue, index) => <Tr key={issue.key} bg={index % 2 === 1 ? evenRowBg : undefined}>
                 <Td color="blue.500">{issue.key}</Td>
                 <Td maxW="300px" isTruncated title={issue.summary}>
                   {issue.summary}
@@ -122,18 +144,18 @@ export const IssueTable: React.FC<IssueTableProps> = ({
         </Table>}
       <Flex mt={4} justifyContent="flex-end" alignItems="center">
         <Text fontSize="sm" mr={4}>
-          Page 1 of 1
+          Page {currentPage} of {Math.max(1, Math.ceil(total / pageSize))}
         </Text>
-        <Button leftIcon={<ChevronLeft size={16} />} size="sm" mr={2} isDisabled _focus={{
+        <Button leftIcon={<ChevronLeft size={16} />} size="sm" mr={2} isDisabled={currentPage === 1} _focus={{
         boxShadow: 'outline',
         borderColor: 'blue.500'
-      }}>
+      }} onClick={() => onPageChange && onPageChange(currentPage - 1)}>
           Prev
         </Button>
-        <Button rightIcon={<ChevronRight size={16} />} size="sm" isDisabled _focus={{
+        <Button rightIcon={<ChevronRight size={16} />} size="sm" isDisabled={currentPage >= Math.ceil(total / pageSize)} _focus={{
         boxShadow: 'outline',
         borderColor: 'blue.500'
-      }}>
+      }} onClick={() => onPageChange && onPageChange(currentPage + 1)}>
           Next
         </Button>
       </Flex>

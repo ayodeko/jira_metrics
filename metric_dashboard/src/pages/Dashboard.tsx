@@ -14,6 +14,7 @@ import { RepeatIcon } from '@chakra-ui/icons';
 import type { TimeInStatusData, TrendData, CumulativeFlowData, TeamMember } from '../services/metricsService';
 import { TeamTable } from '../components/TeamTable';
 import { useAuth } from '../contexts/AuthContext';
+import dayjs from 'dayjs';
 
 export const Dashboard: React.FC = () => {
   const { credentials, logout } = useAuth();
@@ -65,6 +66,9 @@ export const Dashboard: React.FC = () => {
   const [issuesPageSize] = useState(20);
   const [issuesTotal, setIssuesTotal] = useState(0);
 
+  // Date range state
+  const [dateRange, setDateRange] = useState<{ startDate: string | null, endDate: string | null }>({ startDate: null, endDate: null });
+
   const fetchMetrics = async () => {
     if (!credentials) return;
     
@@ -72,11 +76,11 @@ export const Dashboard: React.FC = () => {
     setMetricsError(null);
     try {
       const [leadTime, cycleTime, throughput, wip, reopenRate] = await Promise.all([
-        metricsService.getLeadTime(credentials),
-        metricsService.getCycleTime(credentials),
-        metricsService.getThroughput(credentials),
-        metricsService.getWorkInProgress(credentials),
-        metricsService.getReopenRate(credentials),
+        metricsService.getLeadTime(credentials, dateRange),
+        metricsService.getCycleTime(credentials, dateRange),
+        metricsService.getThroughput(credentials, dateRange),
+        metricsService.getWorkInProgress(credentials, dateRange),
+        metricsService.getReopenRate(credentials, dateRange),
       ]);
       setMetrics({ leadTime, cycleTime, throughput, wip, reopenRate });
     } catch (err) {
@@ -92,7 +96,7 @@ export const Dashboard: React.FC = () => {
     setIssuesLoading(true);
     setIssuesError(null);
     try {
-      const issuesData = await metricsService.getIssues(credentials, page, issuesPageSize);
+      const issuesData = await metricsService.getIssues(credentials, page, issuesPageSize, dateRange);
       setIssues(issuesData.issues ?? []);
       setIssuesTotal(issuesData.total ?? 0);
     } catch (err) {
@@ -108,7 +112,7 @@ export const Dashboard: React.FC = () => {
     setTimeInStatusLoading(true);
     setTimeInStatusError(null);
     try {
-      const data = await metricsService.getTimeInStatus(credentials);
+      const data = await metricsService.getTimeInStatus(credentials, dateRange);
       setTimeInStatusData(data);
     } catch (err) {
       setTimeInStatusError('Failed to load time in status data');
@@ -123,7 +127,7 @@ export const Dashboard: React.FC = () => {
     setTrendLoading(true);
     setTrendError(null);
     try {
-      const data = await metricsService.getTrend(credentials);
+      const data = await metricsService.getTrend(credentials, dateRange);
       setTrendData(data);
     } catch (err) {
       setTrendError('Failed to load trend data');
@@ -138,7 +142,7 @@ export const Dashboard: React.FC = () => {
     setCumulativeFlowLoading(true);
     setCumulativeFlowError(null);
     try {
-      const data = await metricsService.getCumulativeFlow(credentials);
+      const data = await metricsService.getCumulativeFlow(credentials, dateRange);
       setCumulativeFlowData(data);
     } catch (err) {
       setCumulativeFlowError('Failed to load cumulative flow data');
@@ -209,6 +213,19 @@ export const Dashboard: React.FC = () => {
     }
   }, [credentials]);
 
+  // Add a handler for date range change
+  const handleDateRangeChange = (start: string | null, end: string | null) => {
+    setDateRange({ startDate: start, endDate: end });
+  };
+
+  // Refetch metrics when dateRange changes
+  useEffect(() => {
+    if (credentials) {
+      fetchAll();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [credentials, dateRange]);
+
   return (
     <Box bg={bgColor} minH="100vh" width="100%">
       <Header 
@@ -223,6 +240,8 @@ export const Dashboard: React.FC = () => {
           setTabIndex(idx);
         }} 
         onLogout={logout}
+        dateRange={dateRange}
+        onDateRangeChange={handleDateRangeChange}
       />
       <Flex p={6} gap={6} flexDir={{ base: 'column', lg: 'row' }} maxW="1440px" mx="auto">
         {/* Left Rail - KPI Cards */}
@@ -246,6 +265,7 @@ export const Dashboard: React.FC = () => {
           <KPICard 
             title="Lead Time" 
             value={metrics.leadTime} 
+            unit="days"
             change={5.3} 
             colorScheme="blue" 
             onClick={() => handleKPICardClick('Lead Time', 'leadTime')} 
@@ -254,6 +274,7 @@ export const Dashboard: React.FC = () => {
           <KPICard 
             title="Cycle Time" 
             value={metrics.cycleTime} 
+            unit="days"
             change={-3.1} 
             colorScheme="purple" 
             onClick={() => handleKPICardClick('Cycle Time', 'cycleTime')} 
@@ -262,6 +283,7 @@ export const Dashboard: React.FC = () => {
           <KPICard 
             title="Throughput" 
             value={metrics.throughput} 
+            unit="issues"
             change={12.5} 
             colorScheme="green" 
             onClick={() => handleKPICardClick('Throughput', 'throughput')} 
@@ -270,6 +292,7 @@ export const Dashboard: React.FC = () => {
           <KPICard 
             title="Work in Progress" 
             value={metrics.wip} 
+            unit="issues"
             change={8.2} 
             colorScheme="orange" 
             onClick={() => handleKPICardClick('Work in Progress', 'wip')} 
@@ -328,6 +351,10 @@ export const Dashboard: React.FC = () => {
                 issues={issues}
                 isLoading={issuesLoading}
                 isError={!!issuesError}
+                currentPage={issuesPage}
+                total={issuesTotal}
+                pageSize={issuesPageSize}
+                onPageChange={setIssuesPage}
               />
             )}
             {issuesError && <Box color="red.500" fontSize="sm">{issuesError}</Box>}
