@@ -45,6 +45,8 @@ namespace MetricsServer.Services
             _apiToken = apiToken;
             _logger = logger;
 
+            _logger.LogInformation($"PROVIDER: Initializing with credentials - BaseUrl: '{baseUrl}', Email: '{email}', ApiToken: '{apiToken?.Substring(0, Math.Min(10, apiToken?.Length ?? 0))}...'");
+
             _httpClient = new HttpClient();
             var authToken = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{_email}:{_apiToken}"));
             _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", authToken);
@@ -61,12 +63,15 @@ namespace MetricsServer.Services
             }
             try
             {
-                _logger.LogInformation("Authenticating with Jira and fetching issues at startup...");
+                _logger.LogInformation("Authenticating with Jira and fetching all issues at startup...");
+                _logger.LogInformation($"PROVIDER: Using BaseUrl: '{_baseUrl}', Email: '{_email}', ApiToken: '{_apiToken?.Substring(0, Math.Min(10, _apiToken?.Length ?? 0))}...'");
                 string jql = "ORDER BY created DESC";
-                var url = $"{_baseUrl}/rest/api/3/search?jql={Uri.EscapeDataString(jql)}&maxResults=100&expand=changelog&fields=*all";
-                var response = await _httpClient.GetAsync(url);
-                response.EnsureSuccessStatusCode();
-                var json = await response.Content.ReadAsStringAsync();
+                
+                // Use the new JiraService to fetch all issues iteratively
+                var jiraService = new JiraService(_baseUrl, _email, _apiToken);
+                var json = await jiraService.GetAllIssuesAsync(jql, 100);
+                _logger.LogInformation($"PROVIDER: Fetched all issues from Jira");
+                
                 var doc = JsonDocument.Parse(json);
                 if (doc.RootElement.TryGetProperty("issues", out var issuesArray))
                 {
@@ -75,7 +80,7 @@ namespace MetricsServer.Services
                     {
                         _issues.Add(new Issue(issue));
                     }
-                    _logger.LogInformation($"Fetched {_issues.Count} issues from Jira.");
+                    _logger.LogInformation($"Fetched {_issues.Count} issues from Jira (all available issues).");
                 }
                 else
                 {
@@ -84,7 +89,7 @@ namespace MetricsServer.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error authenticating or fetching issues from Jira.");
+                _logger.LogError(ex, $"PROVIDER: Error authenticating or fetching issues from Jira. BaseUrl: '{_baseUrl}', Email: '{_email}', Exception: {ex.Message}");
                 throw; // Rethrow to ensure initialization failure is known
             }
         }
@@ -93,12 +98,12 @@ namespace MetricsServer.Services
         {
             try
             {
-                _logger.LogInformation("Fetching issues from Jira...");
+                _logger.LogInformation("Fetching all issues from Jira...");
                 string jql = "ORDER BY created DESC";
-                var url = $"{_baseUrl}/rest/api/3/search?jql={Uri.EscapeDataString(jql)}&maxResults=100&expand=changelog&fields=*all";
-                var response = await _httpClient.GetAsync(url);
-                response.EnsureSuccessStatusCode();
-                var json = await response.Content.ReadAsStringAsync();
+                
+                // Use the new JiraService to fetch all issues iteratively
+                var jiraService = new JiraService(_baseUrl, _email, _apiToken);
+                var json = await jiraService.GetAllIssuesAsync(jql, 100);
                 var doc = JsonDocument.Parse(json);
                 var issuesList = new List<Issue>();
                 if (doc.RootElement.TryGetProperty("issues", out var issuesArray))
@@ -107,7 +112,7 @@ namespace MetricsServer.Services
                     {
                         issuesList.Add(new Issue(issue));
                     }
-                    _logger.LogInformation($"Fetched {issuesList.Count} issues from Jira.");
+                    _logger.LogInformation($"Fetched {issuesList.Count} issues from Jira (all available issues).");
                 }
                 else
                 {
@@ -138,19 +143,44 @@ namespace MetricsServer.Services
 
         public async Task<string> GetIssuesAsync(string jql, int maxResults = 50)
         {
-            var url = $"{_baseUrl}/rest/api/3/search?jql={Uri.EscapeDataString(jql)}&maxResults={maxResults}";
-            var response = await _httpClient.GetAsync(url);
-            response.EnsureSuccessStatusCode();
-            return await response.Content.ReadAsStringAsync();
+            // Use the new JiraService to fetch all issues iteratively
+            var jiraService = new JiraService(_baseUrl, _email, _apiToken);
+            return await jiraService.GetAllIssuesAsync(jql, maxResults);
         }
 
-        public Task<double> CalculateLeadTimeAsync()
+        private List<Issue> FilterIssuesByDateRange(List<Issue> issues, string? startDate, string? endDate)
+        {
+            DateTime? start = null;
+            DateTime? end = null;
+            if (!string.IsNullOrEmpty(startDate)) {
+                DateTime tmp;
+                if (DateTime.TryParse(startDate, out tmp)) start = tmp;
+            }
+            if (!string.IsNullOrEmpty(endDate)) {
+                DateTime tmp;
+                if (DateTime.TryParse(endDate, out tmp)) end = tmp;
+            }
+            return issues.Where(issue => {
+                if (issue.Fields.TryGetProperty("created", out var createdProp)) {
+                    DateTime created;
+                    if (DateTime.TryParse(createdProp.GetString(), out created)) {
+                        if (start.HasValue && created < start.Value) return false;
+                        if (end.HasValue && created > end.Value) return false;
+                        return true;
+                    }
+                }
+                return false;
+            }).ToList();
+        }
+
+        public Task<double> CalculateLeadTimeAsync(string? startDate = null, string? endDate = null)
         {
             try
             {
-                _logger.LogInformation($"Total issues fetched: {_issues?.Count ?? 0}");
+                var filtered = FilterIssuesByDateRange(_issues ?? new List<Issue>(), startDate, endDate);
+                _logger.LogInformation($"Total issues fetched: {filtered.Count}");
                 var leadTimes = new List<double>();
-                foreach (var issue in _issues ?? new List<Issue>())
+                foreach (var issue in filtered)
                 {
                     if (issue.Fields.TryGetProperty("status", out var status) &&
                         status.TryGetProperty("statusCategory", out var statusCategory) &&
@@ -186,33 +216,35 @@ namespace MetricsServer.Services
             }
         }
 
-        public Task<double> CalculateCycleTimeAsync()
+        public Task<double> CalculateCycleTimeAsync(string? startDate = null, string? endDate = null)
         {
             try
             {
-                _logger.LogInformation($"Total issues fetched: {_issues?.Count ?? 0}");
+                var filtered = FilterIssuesByDateRange(_issues ?? new List<Issue>(), startDate, endDate);
+                _logger.LogInformation($"Total issues fetched: {filtered.Count}");
                 var cycleTimes = new List<double>();
-                foreach (var issue in _issues ?? new List<Issue>())
+                foreach (var issue in filtered)
                 {
                     if (issue.Fields.TryGetProperty("status", out var status) &&
                         status.TryGetProperty("statusCategory", out var statusCategory) &&
                         statusCategory.TryGetProperty("name", out var categoryName) &&
                         string.Equals(categoryName.GetString(), "Done", StringComparison.OrdinalIgnoreCase))
                     {
-                        if (issue.Fields.TryGetProperty("created", out var createdProp) &&
-                            issue.Fields.TryGetProperty("resolutiondate", out var resolvedProp))
+                        if (issue.Fields.TryGetProperty("resolutiondate", out var resolvedProp))
                         {
-                            var createdStr = createdProp.GetString() ?? string.Empty;
                             var resolvedStr = resolvedProp.GetString() ?? string.Empty;
-                            if (!string.IsNullOrEmpty(createdStr) && !string.IsNullOrEmpty(resolvedStr) &&
-                                DateTime.TryParse(createdStr, out var created) &&
+                            if (!string.IsNullOrEmpty(resolvedStr) &&
                                 DateTime.TryParse(resolvedStr, out var resolved))
                             {
-                                var days = (resolved - created).TotalDays;
+                                var workStartedDate = FindFirstWorkStartedDate(issue);
+                                if (workStartedDate.HasValue)
+                                {
+                                    var days = (resolved - workStartedDate.Value).TotalDays;
                                 cycleTimes.Add(days);
                                 string key = issue.Key ?? "<no-key>";
                                 string summary = (issue.Fields.TryGetProperty("summary", out var s) ? s.GetString() : "<no-summary>") ?? "<no-summary>";
-                                _logger.LogInformation($"CycleTime Issue: {key} - {summary} | Created: {created}, Resolved: {resolved}, Days: {days}");
+                                    _logger.LogInformation($"CycleTime Issue: {key} - {summary} | Work Started: {workStartedDate.Value}, Resolved: {resolved}, Days: {days}");
+                                }
                             }
                         }
                     }
@@ -229,12 +261,59 @@ namespace MetricsServer.Services
             }
         }
 
-        public Task<int> CalculateThroughputAsync()
+        /// <summary>
+        /// Finds the first date when the issue transitioned to a "work started" status.
+        /// </summary>
+        /// <param name="issue"></param>
+        /// <returns>DateTime of first "In Progress" (or similar) status, or null if not found.</returns>
+        private DateTime? FindFirstWorkStartedDate(Issue issue)
+        {
+            // Define what statuses mean "work started"
+            var workStartedStatuses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "In Progress", "In Review", "Code Review", "QA", "Testing", "Development"
+            };
+
+            if (issue.Changelog.TryGetProperty("histories", out var histories))
+            {
+                // Sort histories by created ascending
+                var sortedHistories = histories.EnumerateArray()
+                    .OrderBy(h => DateTime.Parse(h.GetProperty("created").GetString()!));
+
+                foreach (var history in sortedHistories)
+                {
+                    if (history.TryGetProperty("created", out var created) &&
+                        history.TryGetProperty("items", out var items))
+                    {
+                        foreach (var item in items.EnumerateArray())
+                        {
+                            if (item.TryGetProperty("field", out var field) &&
+                                field.GetString() == "status" &&
+                                item.TryGetProperty("toString", out var toString))
+                            {
+                                var status = toString.GetString();
+                                if (status != null && workStartedStatuses.Contains(status))
+                                {
+                                    if (DateTime.TryParse(created.GetString(), out var dt))
+                                    {
+                                        return dt;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        public Task<int> CalculateThroughputAsync(string? startDate = null, string? endDate = null)
         {
             try
             {
-                _logger.LogInformation($"Total issues fetched: {_issues?.Count ?? 0}");
-                var throughputIssues = _issues?.Where(issue =>
+                var filtered = FilterIssuesByDateRange(_issues ?? new List<Issue>(), startDate, endDate);
+                _logger.LogInformation($"Total issues fetched: {filtered.Count}");
+                var throughputIssues = filtered.Where(issue =>
                 {
                     if (issue.Fields.TryGetProperty("status", out var status) &&
                         status.TryGetProperty("statusCategory", out var statusCategory) &&
@@ -251,8 +330,8 @@ namespace MetricsServer.Services
                         return isDone;
                     }
                     return false;
-                }).ToList() ?? new List<Issue>();
-                _logger.LogInformation($"Throughput Calculation: {throughputIssues.Count} issues completed out of {_issues?.Count ?? 0} total.");
+                }).ToList();
+                _logger.LogInformation($"Throughput Calculation: {throughputIssues.Count} issues completed out of {filtered.Count} total.");
                 return Task.FromResult(throughputIssues.Count);
             }
             catch (Exception ex)
@@ -262,12 +341,13 @@ namespace MetricsServer.Services
             }
         }
 
-        public Task<int> CalculateWorkInProgressAsync()
+        public Task<int> CalculateWorkInProgressAsync(string? startDate = null, string? endDate = null)
         {
             try
             {
-                _logger.LogInformation($"Total issues fetched: {_issues?.Count ?? 0}");
-                var wipIssues = _issues?.Where(issue =>
+                var filtered = FilterIssuesByDateRange(_issues ?? new List<Issue>(), startDate, endDate);
+                _logger.LogInformation($"Total issues fetched: {filtered.Count}");
+                var wipIssues = filtered.Where(issue =>
                 {
                     if (issue.Fields.TryGetProperty("status", out var status) &&
                         status.TryGetProperty("statusCategory", out var statusCategory) &&
@@ -284,8 +364,8 @@ namespace MetricsServer.Services
                         return isWip;
                     }
                     return false;
-                }).ToList() ?? new List<Issue>();
-                _logger.LogInformation($"WIP Calculation: {wipIssues.Count} issues in progress out of {_issues?.Count ?? 0} total.");
+                }).ToList();
+                _logger.LogInformation($"WIP Calculation: {wipIssues.Count} issues in progress out of {filtered.Count} total.");
                 return Task.FromResult(wipIssues.Count);
             }
             catch (Exception ex)
@@ -295,14 +375,15 @@ namespace MetricsServer.Services
             }
         }
 
-        public Task<double> CalculateReopenRateAsync()
+        public Task<double> CalculateReopenRateAsync(string? startDate = null, string? endDate = null)
         {
             try
             {
-                _logger.LogInformation($"Total issues fetched: {_issues?.Count ?? 0}");
+                var filtered = FilterIssuesByDateRange(_issues ?? new List<Issue>(), startDate, endDate);
+                _logger.LogInformation($"Total issues fetched: {filtered.Count}");
                 int reopenedCount = 0;
                 int totalDone = 0;
-                foreach (var issue in _issues ?? new List<Issue>())
+                foreach (var issue in filtered)
                 {
                     if (issue.Fields.TryGetProperty("status", out var status) &&
                         status.TryGetProperty("statusCategory", out var statusCategory) &&
@@ -353,20 +434,19 @@ namespace MetricsServer.Services
             }
         }
 
-        public Task<TimeInStatusData> GetTimeInStatusDataAsync()
+        public Task<TimeInStatusData> GetTimeInStatusDataAsync(string? startDate = null, string? endDate = null)
         {
             try
             {
+                var filtered = FilterIssuesByDateRange(_issues ?? new List<Issue>(), startDate, endDate);
                 var result = new TimeInStatusData();
                 var statusDurations = new Dictionary<string, List<double>>();
-
-                int totalIssues = _issues?.Count ?? 0;
+                int totalIssues = filtered.Count;
                 int issuesWithChangelog = 0;
                 int totalHistories = 0;
                 int totalTransitions = 0;
                 int skippedDurations = 0;
-
-                foreach (var issue in _issues ?? new List<Issue>())
+                foreach (var issue in filtered)
                 {
                     bool foundTransition = false;
                     if (issue.Changelog.TryGetProperty("histories", out var histories))
@@ -375,11 +455,8 @@ namespace MetricsServer.Services
                         totalHistories += histories.GetArrayLength();
                         DateTime? lastStatusChange = null;
                         string? currentStatus = null;
-
-                        // Sort histories by 'created' ascending
                         var sortedHistories = histories.EnumerateArray()
                             .OrderBy(h => DateTime.Parse(h.GetProperty("created").GetString()!));
-
                         foreach (var history in sortedHistories)
                         {
                             if (history.TryGetProperty("created", out var created) &&
@@ -426,7 +503,6 @@ namespace MetricsServer.Services
                         _logger.LogInformation($"No status transitions found for issue {issue.Key}");
                     }
                 }
-
                 foreach (var status in statusDurations)
                 {
                     result.StatusDurations.Add(new StatusDuration
@@ -435,13 +511,11 @@ namespace MetricsServer.Services
                         AverageDays = status.Value.Any() ? status.Value.Average() : 0
                     });
                 }
-
                 _logger.LogInformation($"TimeInStatus: Total issues: {totalIssues}, Issues with changelog: {issuesWithChangelog}, Total histories: {totalHistories}, Total status transitions: {totalTransitions}, Skipped durations: {skippedDurations}, Statuses with durations: {result.StatusDurations.Count}");
                 if (result.StatusDurations.Count == 0)
                 {
                     _logger.LogWarning("TimeInStatus: No status durations found. Check if issues have changelogs and status transitions.");
                 }
-
                 return Task.FromResult(result);
             }
             catch (Exception ex)
@@ -451,32 +525,27 @@ namespace MetricsServer.Services
             }
         }
 
-        public async Task<TrendData> GetTrendDataAsync()
+        public async Task<TrendData> GetTrendDataAsync(string? startDate = null, string? endDate = null)
         {
             try
             {
                 var result = new TrendData();
-                var issues = _issues ?? new List<Issue>();
+                var issues = FilterIssuesByDateRange(_issues ?? new List<Issue>(), startDate, endDate);
                 if (issues.Count == 0)
                 {
                     await FetchIssuesAsync();
-                    issues = _issues ?? new List<Issue>();
+                    issues = FilterIssuesByDateRange(_issues ?? new List<Issue>(), startDate, endDate);
                 }
                 _logger.LogInformation($"TrendData: Starting calculation with {issues.Count} total issues.");
-
-                // Filter for issues with resolution dates
                 var resolvedIssues = issues
                     .Where(issue => issue.Fields.TryGetProperty("resolutiondate", out var resolved) && resolved.ValueKind != JsonValueKind.Null)
                     .ToList();
                 _logger.LogInformation($"TrendData: Found {resolvedIssues.Count} issues with a resolution date.");
-
                 if (resolvedIssues.Count == 0)
                 {
                     _logger.LogWarning("TrendData: No issues with a resolution date found. Returning empty trend data.");
                     return result;
                 }
-
-                // Group issues by week of resolution
                 var grouped = resolvedIssues
                     .Select(issue => {
                         try
@@ -486,7 +555,12 @@ namespace MetricsServer.Services
                             var week = System.Globalization.ISOWeek.GetWeekOfYear(resolvedDate);
                             var year = resolvedDate.Year;
                             var leadTime = (resolvedDate - createdDate).TotalDays;
-                            return new { year, week, createdDate, resolvedDate, leadTime, issue.Key };
+                            // Calculate cycle time
+                            var workStartedDate = FindFirstWorkStartedDate(issue);
+                            double? cycleTime = null;
+                            if (workStartedDate.HasValue)
+                                cycleTime = (resolvedDate - workStartedDate.Value).TotalDays;
+                            return new { year, week, createdDate, resolvedDate, leadTime, cycleTime, issue.Key };
                         }
                         catch (Exception ex)
                         {
@@ -497,22 +571,18 @@ namespace MetricsServer.Services
                     .Where(x => x != null)
                     .GroupBy(x => new { x!.year, x!.week })
                     .OrderBy(g => g.Key.year).ThenBy(g => g.Key.week);
-
                 _logger.LogInformation($"TrendData: Grouped resolved issues into {grouped.Count()} weekly groups.");
-
                 foreach (var group in grouped)
                 {
                     var weekLabel = $"{group.Key.year}-W{group.Key.week:D2}";
                     var avgLeadTime = group.Average(x => x.leadTime);
-                    var avgCycleTime = avgLeadTime; // For now, same as lead time
+                    var avgCycleTime = group.Where(x => x.cycleTime.HasValue).Any() ? group.Where(x => x.cycleTime.HasValue).Average(x => x.cycleTime.Value) : 0.0;
                     var throughput = group.Count();
                     result.LeadTime.Add(new MetricTrend { Date = new DateTime(group.Key.year, 1, 1).AddDays((group.Key.week - 1) * 7), Value = Math.Round(avgLeadTime, 2) });
                     result.CycleTime.Add(new MetricTrend { Date = new DateTime(group.Key.year, 1, 1).AddDays((group.Key.week - 1) * 7), Value = Math.Round(avgCycleTime, 2) });
                     result.Throughput.Add(new MetricTrend { Date = new DateTime(group.Key.year, 1, 1).AddDays((group.Key.week - 1) * 7), Value = throughput });
                 }
-
                 _logger.LogInformation($"TrendData: Processed {result.LeadTime.Count} data points for the trend chart.");
-
                 return result;
             }
             catch (Exception ex)
@@ -522,27 +592,21 @@ namespace MetricsServer.Services
             }
         }
 
-        public async Task<CumulativeFlowData> GetCumulativeFlowDataAsync()
+        public async Task<CumulativeFlowData> GetCumulativeFlowDataAsync(string? startDate = null, string? endDate = null)
         {
             try
             {
                 var result = new CumulativeFlowData();
-                var issues = _issues ?? new List<Issue>();
+                var issues = FilterIssuesByDateRange(_issues ?? new List<Issue>(), startDate, endDate);
                 if (!issues.Any()) return result;
-
-                var startDate = DateTime.Now.AddDays(-30).Date;
-                var endDate = DateTime.Now.Date;
-
-                // Create a list of all possible statuses from the issues
+                var startDateVal = DateTime.Now.AddDays(-30).Date;
+                var endDateVal = DateTime.Now.Date;
                 var allStatuses = issues
                     .Select(i => i.Fields.TryGetProperty("status", out var s) && s.TryGetProperty("name", out var n) ? n.GetString() : null)
                     .Where(s => s != null)
                     .Distinct()
                     .ToList();
-
-                // Create a map of issue key to its status transitions
                 var issueStatusTransitions = new Dictionary<string, List<(DateTime Date, string Status)>>();
-
                 foreach (var issue in issues)
                 {
                     var key = issue.Key;
@@ -572,31 +636,33 @@ namespace MetricsServer.Services
                         }
                     }
                 }
-
-                for (var day = startDate; day <= endDate; day = day.AddDays(1))
+                for (var day = startDateVal; day <= endDateVal; day = day.AddDays(1))
                 {
                     var dailyCounts = new Dictionary<string, int>();
                     foreach (var status in allStatuses)
                     {
                         if (status != null) dailyCounts[status] = 0;
                     }
-
                     foreach (var issueKey in issueStatusTransitions.Keys)
                     {
                         var lastKnownStatus = issueStatusTransitions[issueKey]
                             .Where(t => t.Date <= day)
                             .OrderByDescending(t => t.Date)
                             .FirstOrDefault();
-
                         if (lastKnownStatus != default && lastKnownStatus.Status != null)
                         {
-                            dailyCounts[lastKnownStatus.Status]++;
+                            if (dailyCounts.ContainsKey(lastKnownStatus.Status))
+                            {
+                                dailyCounts[lastKnownStatus.Status]++;
+                            }
+                            else
+                            {
+                                dailyCounts[lastKnownStatus.Status] = 1;
+                            }
                         }
                     }
-
                     result.DataPoints.Add(new FlowPoint { Date = day, StatusCounts = dailyCounts });
                 }
-
                 _logger.LogInformation($"CumulativeFlow: Processed {result.DataPoints.Count} days for CFD chart.");
                 return result;
             }
@@ -667,13 +733,13 @@ namespace MetricsServer.Services
             public string Sprint { get; set; } = string.Empty;
         }
 
-        public async Task<(List<IssueTableRow> Issues, int Total)> GetIssueTableRowsAsync(int page = 1, int pageSize = 20)
+        public async Task<(List<IssueTableRow> Issues, int Total)> GetIssueTableRowsAsync(int page = 1, int pageSize = 20, string? startDate = null, string? endDate = null)
         {
             if (_issues == null)
             {
                 await FetchIssuesAsync();
             }
-            var allIssues = _issues ?? new List<Issue>();
+            var allIssues = FilterIssuesByDateRange(_issues ?? new List<Issue>(), startDate, endDate);
             // Sort by resolution date descending
             var sorted = allIssues.OrderByDescending(issue =>
                 issue.Fields.TryGetProperty("resolutiondate", out var done) && DateTime.TryParse(done.GetString(), out var doneDt)
@@ -691,7 +757,7 @@ namespace MetricsServer.Services
                     row.Created = DateTime.TryParse(created.GetString(), out var createdDt) ? createdDt.ToString("yyyy-MM-dd") : created.GetString() ?? string.Empty;
                 if (issue.Fields.TryGetProperty("resolutiondate", out var done))
                     row.Done = DateTime.TryParse(done.GetString(), out var doneDt) ? doneDt.ToString("yyyy-MM-dd") : done.GetString() ?? string.Empty;
-                // LeadTime and CycleTime: (resolutiondate - created) in days
+                // LeadTime: (resolutiondate - created) in days
                 string createdStr = row.Created;
                 string doneStr = row.Done;
                 if (!string.IsNullOrEmpty(createdStr) && !string.IsNullOrEmpty(doneStr)
@@ -700,16 +766,32 @@ namespace MetricsServer.Services
                 {
                     var days = (doneDt2 - createdDt2).TotalDays;
                     row.LeadTime = days.ToString("0.##");
-                    row.CycleTime = days.ToString("0.##");
                 }
                 else
                 {
                     row.LeadTime = "";
+                }
+                // CycleTime: (resolutiondate - first work started) in days
+                if (!string.IsNullOrEmpty(doneStr) && DateTime.TryParse(doneStr, out var doneDt3))
+                {
+                    var workStartedDate = FindFirstWorkStartedDate(issue);
+                    if (workStartedDate.HasValue)
+                    {
+                        var cycleDays = (doneDt3 - workStartedDate.Value).TotalDays;
+                        row.CycleTime = cycleDays.ToString("0.##");
+                    }
+                    else
+                    {
+                        row.CycleTime = "";
+                    }
+                }
+                else
+                {
                     row.CycleTime = "";
                 }
                 // Sprint: try fields.sprint.name or fields.customfield_10021[0].name (common Jira sprint field)
                 string sprintName = string.Empty;
-                if (issue.Fields.TryGetProperty("sprint", out var sprint) && sprint.ValueKind != JsonValueKind.Null)
+                if (issue.Fields.TryGetProperty("sprint", out var sprint) && sprint.ValueKind != System.Text.Json.JsonValueKind.Null)
                     sprintName = sprint.GetString() ?? string.Empty;
                 row.Sprint = sprintName;
                 result.Add(row);

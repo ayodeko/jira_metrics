@@ -21,6 +21,8 @@ namespace MetricsServer.Services
         public async Task<JiraMetricsProvider> GetOrCreateAsync(string baseUrl, string email, string apiToken, bool forceRefresh = false)
         {
             var cacheKey = CreateCacheKey(baseUrl, email, apiToken);
+            
+            _logger.LogInformation($"CACHE: Request for credentials - BaseUrl: '{baseUrl}', Email: '{email}', ApiToken: '{apiToken?.Substring(0, Math.Min(10, apiToken?.Length ?? 0))}...', CacheKey: {cacheKey}");
 
             if (forceRefresh)
             {
@@ -30,6 +32,7 @@ namespace MetricsServer.Services
             return await _cache.GetOrCreateAsync(cacheKey, async entry =>
             {
                 _logger.LogInformation($"Creating new JiraMetricsProvider for key: {cacheKey}");
+                _logger.LogInformation($"CACHE: Storing credentials - BaseUrl: '{baseUrl}', Email: '{email}', ApiToken: '{apiToken?.Substring(0, Math.Min(10, apiToken?.Length ?? 0))}...'");
                 entry.SlidingExpiration = TimeSpan.FromMinutes(30); // Cache for 30 minutes of inactivity
 
                 var provider = new JiraMetricsProvider(baseUrl, email, apiToken, _loggerFactory.CreateLogger<JiraMetricsProvider>());
