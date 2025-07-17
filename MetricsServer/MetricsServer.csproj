@@ -8,14 +8,11 @@
 
   <ItemGroup>
     <PackageReference Include="Akka" Version="1.5.45" />
+    <PackageReference Include="Akka.Hosting" Version="1.5.45" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.0" />
     <PackageReference Include="Scalar.AspNetCore" Version="2.4.6" />
     <PackageReference Include="Jira.SDK" Version="1.0.0" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.0" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Akka\Services\" />
   </ItemGroup>
 
 </Project>
