@@ -7,22 +7,23 @@ namespace MetricsServer.Services
     public interface IMetricsProvider
     {
         Task<string> GetIssuesAsync(string jql, int maxResults = 50);
-        Task<double> CalculateLeadTimeAsync();
-        Task<double> CalculateCycleTimeAsync();
-        Task<int> CalculateThroughputAsync();
-        Task<int> CalculateWorkInProgressAsync();
-        Task<double> CalculateReopenRateAsync();
+        Task<List<Issue>> GetIssuesAsync();
+        Task<double> CalculateLeadTimeAsync(string? startDate = null, string? endDate = null);
+        Task<double> CalculateCycleTimeAsync(string? startDate = null, string? endDate = null);
+        Task<int> CalculateThroughputAsync(string? startDate = null, string? endDate = null);
+        Task<int> CalculateWorkInProgressAsync(string? startDate = null, string? endDate = null);
+        Task<double> CalculateReopenRateAsync(string? startDate = null, string? endDate = null);
         Task<List<Issue>> FetchIssuesAsync();
         
         // New methods for chart data
-        Task<TimeInStatusData> GetTimeInStatusDataAsync();
-        Task<TrendData> GetTrendDataAsync();
-        Task<CumulativeFlowData> GetCumulativeFlowDataAsync();
+        Task<TimeInStatusData> GetTimeInStatusDataAsync(string? startDate = null, string? endDate = null);
+        Task<TrendData> GetTrendDataAsync(string? startDate = null, string? endDate = null);
+        Task<CumulativeFlowData> GetCumulativeFlowDataAsync(string? startDate = null, string? endDate = null);
         Task<CumulativeFlowData> GetCumulativeFlowAsync();
         Task<TimeInStatusData> GetTimeInStatusAsync();
         Task<TrendData> GetTrendAsync();
         Task InitializeAsync();
-        Task<(List<JiraMetricsProvider.IssueTableRow> Issues, int Total)> GetIssueTableRowsAsync(int page = 1, int pageSize = 20);
+        Task<(List<JiraMetricsProvider.IssueTableRow> Issues, int Total)> GetIssueTableRowsAsync(int page = 1, int pageSize = 20, string? startDate = null, string? endDate = null);
     }
 
     // Data models for the new endpoints

@@ -12,6 +12,7 @@ namespace MetricsServer.Controllers
     {
         private readonly ILogger<MetricsController> _logger;
         private readonly JiraMetricsProviderCache _providerCache;
+        private readonly Dictionary<string, UserMetricsProvider> _userMetricsProviderCache = new();
 
         public MetricsController(
             ILogger<MetricsController> logger,
@@ -26,6 +27,7 @@ namespace MetricsServer.Controllers
         {
             try
             {
+                _logger.LogInformation($"TEST-CONNECTION: Received credentials - BaseUrl: '{request.BaseUrl}', Email: '{request.Email}', ApiToken: '{request.ApiToken?.Substring(0, Math.Min(10, request.ApiToken.Length))}...'");
                 var provider = await _providerCache.GetOrCreateAsync(request.BaseUrl, request.Email, request.ApiToken);
                 return Ok(new { message = "Connection successful" });
             }
@@ -42,7 +44,7 @@ namespace MetricsServer.Controllers
             try
             {
                 var provider = await _providerCache.GetOrCreateAsync(request.Credentials.BaseUrl, request.Credentials.Email, request.Credentials.ApiToken);
-                var leadTime = await provider.CalculateLeadTimeAsync();
+                var leadTime = await provider.CalculateLeadTimeAsync(request.StartDate, request.EndDate);
                 return Ok(new { leadTime });
             }
             catch (Exception ex)
@@ -58,7 +60,7 @@ namespace MetricsServer.Controllers
             try
             {
                 var provider = await _providerCache.GetOrCreateAsync(request.Credentials.BaseUrl, request.Credentials.Email, request.Credentials.ApiToken);
-                var cycleTime = await provider.CalculateCycleTimeAsync();
+                var cycleTime = await provider.CalculateCycleTimeAsync(request.StartDate, request.EndDate);
                 return Ok(new { cycleTime });
             }
             catch (Exception ex)
@@ -74,7 +76,7 @@ namespace MetricsServer.Controllers
             try
             {
                 var provider = await _providerCache.GetOrCreateAsync(request.Credentials.BaseUrl, request.Credentials.Email, request.Credentials.ApiToken);
-                var throughput = await provider.CalculateThroughputAsync();
+                var throughput = await provider.CalculateThroughputAsync(request.StartDate, request.EndDate);
                 return Ok(new { throughput });
             }
             catch (Exception ex)
@@ -90,7 +92,7 @@ namespace MetricsServer.Controllers
             try
             {
                 var provider = await _providerCache.GetOrCreateAsync(request.Credentials.BaseUrl, request.Credentials.Email, request.Credentials.ApiToken);
-                var workInProgress = await provider.CalculateWorkInProgressAsync();
+                var workInProgress = await provider.CalculateWorkInProgressAsync(request.StartDate, request.EndDate);
                 return Ok(new { workInProgress });
             }
             catch (Exception ex)
@@ -106,7 +108,7 @@ namespace MetricsServer.Controllers
             try
             {
                 var provider = await _providerCache.GetOrCreateAsync(request.Credentials.BaseUrl, request.Credentials.Email, request.Credentials.ApiToken);
-                var reopenRate = await provider.CalculateReopenRateAsync();
+                var reopenRate = await provider.CalculateReopenRateAsync(request.StartDate, request.EndDate);
                 return Ok(new { reopenRate });
             }
             catch (Exception ex)
@@ -122,7 +124,7 @@ namespace MetricsServer.Controllers
             try
             {
                 var provider = await _providerCache.GetOrCreateAsync(request.Credentials.BaseUrl, request.Credentials.Email, request.Credentials.ApiToken);
-                var timeInStatus = await provider.GetTimeInStatusDataAsync();
+                var timeInStatus = await provider.GetTimeInStatusDataAsync(request.StartDate, request.EndDate);
                 return Ok(timeInStatus);
             }
             catch (Exception ex)
@@ -138,7 +140,7 @@ namespace MetricsServer.Controllers
             try
             {
                 var provider = await _providerCache.GetOrCreateAsync(request.Credentials.BaseUrl, request.Credentials.Email, request.Credentials.ApiToken);
-                var trend = await provider.GetTrendDataAsync();
+                var trend = await provider.GetTrendDataAsync(request.StartDate, request.EndDate);
                 return Ok(trend);
             }
             catch (Exception ex)
@@ -154,7 +156,7 @@ namespace MetricsServer.Controllers
             try
             {
                 var provider = await _providerCache.GetOrCreateAsync(request.Credentials.BaseUrl, request.Credentials.Email, request.Credentials.ApiToken);
-                var flow = await provider.GetCumulativeFlowDataAsync();
+                var flow = await provider.GetCumulativeFlowDataAsync(request.StartDate, request.EndDate);
                 return Ok(flow);
             }
             catch (Exception ex)
@@ -170,7 +172,7 @@ namespace MetricsServer.Controllers
             try
             {
                 var provider = await _providerCache.GetOrCreateAsync(request.Credentials.BaseUrl, request.Credentials.Email, request.Credentials.ApiToken);
-                var (issues, total) = await provider.GetIssueTableRowsAsync(request.Page, request.PageSize);
+                var (issues, total) = await provider.GetIssueTableRowsAsync(request.Page, request.PageSize, request.StartDate, request.EndDate);
                 return Ok(new { total, issues });
             }
             catch (Exception ex)
@@ -185,9 +187,15 @@ namespace MetricsServer.Controllers
         {
             try
             {
+                _logger.LogInformation($"TEAMTABLE: Received credentials - BaseUrl: '{request.Credentials.BaseUrl}', Email: '{request.Credentials.Email}', ApiToken: '{request.Credentials.ApiToken?.Substring(0, Math.Min(10, request.Credentials.ApiToken.Length))}...'");
                 var provider = await _providerCache.GetOrCreateAsync(request.Credentials.BaseUrl, request.Credentials.Email, request.Credentials.ApiToken);
-                var userMetricsProvider = new UserMetricsProvider(provider);
-                var rows = await userMetricsProvider.GetTeamTableRowsAsync();
+                var cacheKey = $"UserMetricsProvider_{request.Credentials.BaseUrl}_{request.Credentials.Email}";
+                if (!_userMetricsProviderCache.TryGetValue(cacheKey, out var userMetricsProvider))
+                {
+                    userMetricsProvider = new UserMetricsProvider(provider);
+                    _userMetricsProviderCache[cacheKey] = userMetricsProvider;
+                }
+                var rows = await userMetricsProvider.GetTeamTableRowsAsync(request.StartDate, request.EndDate);
                 return Ok(rows);
             }
             catch (Exception ex)
@@ -203,6 +211,14 @@ namespace MetricsServer.Controllers
             try
             {
                 var provider = await _providerCache.GetOrCreateAsync(request.Credentials.BaseUrl, request.Credentials.Email, request.Credentials.ApiToken, true);
+                
+                // Clear team cache when refreshing
+                var cacheKey = $"UserMetricsProvider_{request.Credentials.BaseUrl}_{request.Credentials.Email}";
+                if (_userMetricsProviderCache.TryGetValue(cacheKey, out var userMetricsProvider))
+                {
+                    userMetricsProvider.ClearCache();
+                }
+                
                 return Ok(new { message = "Metrics refreshed successfully" });
             }
             catch (Exception ex)
@@ -223,6 +239,8 @@ namespace MetricsServer.Controllers
     public class MetricsRequest
     {
         public JiraCredentialsRequest Credentials { get; set; } = new();
+        public string? StartDate { get; set; }
+        public string? EndDate { get; set; }
     }
 
     public class IssueTableRequest : MetricsRequest
