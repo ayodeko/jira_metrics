@@ -1,3 +1,7 @@
+using Akka.Actor;
+using Akka.Hosting;
+using MetricsServer.Akka.Actors;
+using MetricsServer.Akka.Services;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -14,6 +18,19 @@ builder.Services.AddCors(corsBuilder => corsBuilder.AddDefaultPolicy(
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<MetricsServer.Services.JiraMetricsProviderCache>();
 
+// --- Akka.NET Configuration ---
+builder.Services.AddAkka("MetricsActorSystem", (akkaBuilder, provider) =>
+{
+    akkaBuilder.WithActors((system, registry, resolver) =>
+    {
+        // Create and register the coordinator actor
+        var coordinatorProps = Props.Create(() => new MetricsCoordinatorActor(provider));
+        var coordinatorActor = system.ActorOf(coordinatorProps, "metrics-coordinator");
+        registry.Register<MetricsCoordinatorActor>(coordinatorActor);
+    });
+});
+builder.Services.AddSingleton<AkkaMetricsService>();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -27,29 +44,5 @@ app.UseHttpsRedirection();
 
 app.MapControllers();
 
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
-
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
-
 app.UseCors();
 app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}

@@ -3,6 +3,7 @@ using MetricsServer.Services;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
+using MetricsServer.Akka.Services;
 
 namespace MetricsServer.Controllers
 {
@@ -13,13 +14,19 @@ namespace MetricsServer.Controllers
         private readonly ILogger<MetricsController> _logger;
         private readonly JiraMetricsProviderCache _providerCache;
         private readonly Dictionary<string, UserMetricsProvider> _userMetricsProviderCache = new();
+        private readonly AkkaMetricsService _akkaService;
+        private readonly bool _useActorModel;
 
         public MetricsController(
             ILogger<MetricsController> logger,
-            JiraMetricsProviderCache providerCache)
+            JiraMetricsProviderCache providerCache,
+            AkkaMetricsService akkaService,
+            IConfiguration configuration)
         {
             _logger = logger;
             _providerCache = providerCache;
+            _akkaService = akkaService;
+            _useActorModel = configuration.GetValue<bool>("UseActorModel", false);
         }
 
         [HttpPost("test-connection")]
@@ -41,6 +48,13 @@ namespace MetricsServer.Controllers
         [HttpPost("leadtime")]
         public async Task<IActionResult> GetLeadTime([FromBody] MetricsRequest request)
         {
+            if (_useActorModel)
+            {
+                _logger.LogInformation("Calculating lead time using Akka.NET actors.");
+                var result = await _akkaService.GetLeadTime(request.Credentials);
+                return Ok(result);
+            }
+            _logger.LogInformation("Calculating lead time using V1 approach.");
             try
             {
                 var provider = await _providerCache.GetOrCreateAsync(request.Credentials.BaseUrl, request.Credentials.Email, request.Credentials.ApiToken);
